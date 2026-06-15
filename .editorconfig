@@ -1,0 +1,22 @@
+# Keep indentation consistent across editors. (VSCode needs the "EditorConfig for
+# VS Code" extension to honor this; .vscode/settings.json covers it natively.)
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# YAML forbids tabs — spaces only.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.sh]
+indent_style = space
+indent_size = 4
+
+# GDScript uses tabs (Godot's convention).
+[*.gd]
+indent_style = tab

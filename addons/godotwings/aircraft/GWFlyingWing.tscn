@@ -1,0 +1,15 @@
+; Ready-to-fly flying-wing aircraft. Instance this into a scene that has a camera
+; and (optionally) a ground collider, then connect ArduPilot SITL — it flies.
+; It self-assembles the SITL bridge at runtime; tick `enable_camera` for video.
+; Uses the built-in FPV Wing flight model; switch `flight_model` to retune.
+
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" uid="uid://btq25u4xs5gcj" path="res://addons/godotwings/Aircraft.gd" id="1_ac"]
+[ext_resource type="PackedScene" uid="uid://cmt4gk21gv2je" path="res://addons/godotwings/aircraft/wingbody.gltf" id="3_model"]
+
+[node name="GWFlyingWing" type="Node3D"]
+script = ExtResource("1_ac")
+flight_model = 2
+model_scene = ExtResource("3_model")
+model_orientation = 1

@@ -1,0 +1,13 @@
+{
+  "// note": "YAML is whitespace-significant and forbids tabs. Force spaces and disable per-file indent detection so docker-compose.yml etc. don't get re-tabbed on save.",
+  "[yaml]": {
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2,
+    "editor.detectIndentation": false
+  },
+  "[dockercompose]": {
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2,
+    "editor.detectIndentation": false
+  }
+}

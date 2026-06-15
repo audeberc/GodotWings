@@ -1,0 +1,39 @@
+# ArduPilot SITL for GodotWings (ArduPlane or ArduCopter).
+#
+#   1. Open the GodotWings project in Godot and press Play (binds UDP 9002).
+#   2. docker compose up --build      (first build is slow: compiles ArduPilot)
+#   3. Point QGroundControl / Mission Planner at UDP 14550 (it auto-listens).
+#
+# ArduPilot is the client on both links (JSON out to :9002, MAVLink out to
+# :14550), so no inbound port publishing is needed — Docker NAT routes replies.
+# Override any setting via a .env file or shell environment.
+services:
+  ardupilot-sitl:
+    build:
+      context: ./docker
+      args:
+        ARDUPILOT_TAG: ${ARDUPILOT_TAG:-Plane-4.5.7}
+    image: godotwings-ardupilot-sitl
+    container_name: godotwings-sitl
+    environment:
+      # Where GodotWings' SITL bridge listens (host running Godot).
+      GODOT_HOST: ${GODOT_HOST:-host.docker.internal}
+      # Where the ground station listens for MAVLink.
+      GCS_HOST: ${GCS_HOST:-host.docker.internal}
+      GCS_PORT: ${GCS_PORT:-14550}
+      HOME_LOCATION: ${HOME_LOCATION:--35.363261,149.165230,584,353}
+      SPEEDUP: ${SPEEDUP:-1}
+      # ArduPlane (default) or ArduCopter — match the Godot vehicle you fly.
+      VEHICLE: ${VEHICLE:-ArduPlane}
+      # Number of aircraft to spawn. Vehicle i uses ArduPilot -I i -> JSON physics
+      # on 9002+10*i (match a GWAircraft with sitl_instance=i) and MAVLink to
+      # GCS_PORT+10*i. >1 runs headless (no interactive MAVProxy console).
+      NUM_VEHICLES: ${NUM_VEHICLES:-1}
+      EXTRA_ARGS: ${EXTRA_ARGS:-}
+    # Makes host.docker.internal resolve on Linux too (native on Mac/Windows).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # MAVProxy/SITL behave best with a pseudo-TTY allocated.
+    tty: true
+    stdin_open: true
+    restart: unless-stopped

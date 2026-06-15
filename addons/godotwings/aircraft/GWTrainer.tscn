@@ -1,0 +1,14 @@
+; Ready-to-fly docile trainer. Instance into a scene with a camera and connect
+; ArduPilot SITL. Self-assembles its bridge at runtime; tick `enable_camera` for
+; video. Swap `spec` / `model_scene` to make your own.
+
+[gd_scene load_steps=3 format=3 uid="uid://cx6p5urd6pu3o"]
+
+[ext_resource type="Script" uid="uid://btq25u4xs5gcj" path="res://addons/godotwings/Aircraft.gd" id="1_ac"]
+[ext_resource type="PackedScene" uid="uid://cmt4gk21gv2je" path="res://addons/godotwings/aircraft/wingbody.gltf" id="3_model"]
+
+[node name="GWTrainer" type="Node3D"]
+script = ExtResource("1_ac")
+flight_model = 0
+model_scene = ExtResource("3_model")
+model_orientation = 1

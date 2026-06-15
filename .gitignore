@@ -1,0 +1,18 @@
+# Godot 4 import cache / generated
+.godot/
+/android/
+/builds/
+export_presets.cfg
+*.translation
+
+# Export output (web / desktop builds)
+/test.*
+*.pck
+*.dmg
+
+# OS / editor
+.DS_Store
+*~
+
+# Docker scratch
+*.tlog

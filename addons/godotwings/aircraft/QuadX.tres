@@ -1,0 +1,19 @@
+; Default quadcopter (quad X) for GWMultirotorBody. ~0.7 kg 5" quad: 0.13 m arms,
+; 5:1 thrust/weight, realistic inertia (auto-estimated). Powerful and agile while
+; staying stable on ArduCopter's stock tune. Tune to taste, or assign your own.
+[gd_resource type="Resource" script_class="GWMultirotorConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/godotwings/fdm/MultirotorConfig.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+mass = 0.7
+Ixx = 0.0
+Iyy = 0.0
+Izz = 0.0
+arm_length = 0.13
+motor_count = 4
+thrust_to_weight = 5.0
+motor_time_const = 0.02
+yaw_torque_coeff = 0.06
+drag_coeff = 0.25

@@ -1,0 +1,51 @@
+; Simple placeholder quad model (dark cross + 4 motor pods). Used as the default
+; visual for GWMulticopter; replace with your own glTF via `model_scene`.
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="StandardMaterial3D" id="Mat_dark"]
+albedo_color = Color(0.15, 0.16, 0.18, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_center"]
+size = Vector3(0.16, 0.06, 0.16)
+
+[sub_resource type="BoxMesh" id="Mesh_arm"]
+size = Vector3(0.5, 0.03, 0.03)
+
+[sub_resource type="BoxMesh" id="Mesh_motor"]
+size = Vector3(0.07, 0.05, 0.07)
+
+[node name="QuadModel" type="Node3D"]
+
+[node name="Center" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh_center")
+surface_material_override/0 = SubResource("Mat_dark")
+
+[node name="ArmA" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, 0.707107, 0, 0, 0)
+mesh = SubResource("Mesh_arm")
+surface_material_override/0 = SubResource("Mat_dark")
+
+[node name="ArmB" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, 0, 0, 0)
+mesh = SubResource("Mesh_arm")
+surface_material_override/0 = SubResource("Mat_dark")
+
+[node name="M1" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.177, 0.02, -0.177)
+mesh = SubResource("Mesh_motor")
+surface_material_override/0 = SubResource("Mat_dark")
+
+[node name="M2" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.177, 0.02, 0.177)
+mesh = SubResource("Mesh_motor")
+surface_material_override/0 = SubResource("Mat_dark")
+
+[node name="M3" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.177, 0.02, -0.177)
+mesh = SubResource("Mesh_motor")
+surface_material_override/0 = SubResource("Mat_dark")
+
+[node name="M4" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.177, 0.02, 0.177)
+mesh = SubResource("Mesh_motor")
+surface_material_override/0 = SubResource("Mat_dark")

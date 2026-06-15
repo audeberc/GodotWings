@@ -1,0 +1,56 @@
+# GodotWings SITL convenience defaults, applied on top of ArduPlane's defaults.
+# Edit freely; re-run `docker compose up` to apply.
+
+# Allow arming from a GCS without an RC transmitter / with a custom physics
+# backend. 0 = skip all pre-arm checks (fine for a simulator; do NOT do this on
+# real hardware). Set to a bitmask if you want selective checks instead.
+ARMING_CHECK 0
+
+# Let a connected joystick/RC arm with rudder, and don't require RC for arming.
+ARMING_RUDDER 2
+
+# Disable RC failsafe so "no transmitter" doesn't block/disarm in the sim.
+THR_FAILSAFE 0
+
+# --- Camera gimbal: servo mount that the Godot GWCamera follows ---
+# On the GWCamera/GWAircraft, enable the gimbal and set pitch/yaw/roll channels
+# to 9/10/11 with ranges matching the MNT1_*_MIN/MAX below.
+
+# --- Mount type + default mode ---
+MNT1_TYPE        1     # 1 = Servo gimbal
+MNT1_DEFLT_MODE  2     # mount mode: 2 = MAVLink targeting (DO_GIMBAL_MANAGER_PITCHYAW /
+                       # DO_MOUNT_CONTROL), 3 = RC, 4 = GPS point, 6 = Home. Use 2 for GCS control.
+
+# --- Servo function routing (which output drives which axis) ---
+SERVO9_FUNCTION  7     # k_mount_pitch  -> channel 9
+SERVO10_FUNCTION 6     # k_mount_yaw    -> channel 10
+SERVO11_FUNCTION 8     # k_mount_roll   -> channel 11
+
+# --- Servo PWM endpoints (match gimbal_pwm_min/max on the GWCamera) ---
+SERVO9_MIN  1000
+SERVO9_MAX  2000
+SERVO10_MIN 1000
+SERVO10_MAX 2000
+SERVO11_MIN 1000
+SERVO11_MAX 2000
+
+# --- Angle limits (deg) the PWM range spans (match gimbal_*_range_deg) ---
+MNT1_PITCH_MIN -90
+MNT1_PITCH_MAX 0
+MNT1_YAW_MIN  -180
+MNT1_YAW_MAX   180
+MNT1_ROLL_MIN -30
+MNT1_ROLL_MAX  30
+
+# --- Copter frame (ArduCopter only; ArduPlane ignores these as unknown) -------
+# Without a frame class set, ArduCopter has no motor mixer and refuses to arm with
+# "PreArm: Check frame class and type". 1/1 = Quad X (matches GWMultirotorBody).
+FRAME_CLASS 1
+FRAME_TYPE 1
+
+# GWMultirotorBody maps PWM -> thrust LINEARLY, so disable ArduCopter's thrust
+# curve and set hover = 1/thrust_to_weight (0.2 for the default 5:1 QuadX). A
+# mismatched THST_EXPO/HOVER makes the copter feel underpowered on takeoff and
+# mistunes the rate loop (effective gain varies with throttle -> tip/flip).
+MOT_THST_EXPO 0
+MOT_THST_HOVER 0.2

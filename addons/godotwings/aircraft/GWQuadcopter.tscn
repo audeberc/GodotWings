@@ -1,0 +1,10 @@
+; Ready-to-fly quadcopter — one GWMulticopter node that self-assembles its SITL
+; bridge, model, and (optional) camera. Instance into a scene with a camera, run
+; SITL with VEHICLE=ArduCopter, and connect. Tick `enable_camera` for video; swap
+; `config` / `model_scene` for your own.
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/godotwings/Multicopter.gd" id="1_mc"]
+
+[node name="GWQuadcopter" type="Node3D"]
+script = ExtResource("1_mc")
