@@ -26,6 +26,8 @@ Examples/Main.tscn provides the most basic example.
 default mavlink endpoint: udp:127.0.0.1:14550
 and video stream: 127.0.0.1:5600
 
+<img src="assets/example_setup.png" height="400"> 
+
 ### ArduPilot side
 
 
