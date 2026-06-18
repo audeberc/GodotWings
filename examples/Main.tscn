@@ -73,9 +73,9 @@ script = ExtResource("6_terrain")
 amplitude = 200.0
 flat_radius = 500.0
 
-[node name="Terrain_col" type="StaticBody3D" parent="WorldRoot/Terrain" unique_id=677451097]
+[node name="Terrain_col" type="StaticBody3D" parent="WorldRoot/Terrain" unique_id=1390287868]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="WorldRoot/Terrain/Terrain_col" unique_id=806934646]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WorldRoot/Terrain/Terrain_col" unique_id=587634523]
 shape = SubResource("ConcavePolygonShape3D_m3a76")
 
 [node name="Runway" type="MeshInstance3D" parent="WorldRoot" unique_id=1569043313]
@@ -123,18 +123,24 @@ script = ExtResource("7_fo")
 transform = Transform3D(1, 0, 0, 0, 0.96062416, -0.27785122, 0, 0.27785122, 0.96062416, 0, -1.3000739, 0)
 script = ExtResource("6_g726i")
 model_yaw_offset_deg = 180.0
-hold_until_launch = true
 enable_camera = true
 camera_protocol = 1
 camera_gimbal = true
+config = Vector3(0, 0, 0)
+hold_until_launch = null
 terrain_following = true
+ground_collision_mask = false
+ground_level = 1
 wind_path = NodePath("../GWWind")
 obstacle_mask = 1
+crash_mode = 0
+hull_size = 1
+ragdoll_bounce = Vector3(0, 0, 0)
 metadata/_custom_type_script = "uid://btq25u4xs5gcj"
 
 [node name="GWCatapult" type="Node3D" parent="." unique_id=272178146]
 transform = Transform3D(-1, -8.742278e-08, -3.821371e-15, 0, -4.371139e-08, 1, -8.742278e-08, 1, 4.371139e-08, 0.017455101, -1.9213233, -0.1635865)
 script = ExtResource("12_cata")
 aircraft_path = NodePath("../GWAircraft")
-launch_speed = 90.0
+launch_speed = 30.0
 metadata/_custom_type_script = "uid://bsk60lj53g04y"
