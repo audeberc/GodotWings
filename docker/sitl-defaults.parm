@@ -12,6 +12,22 @@ ARMING_RUDDER 2
 # Disable RC failsafe so "no transmitter" doesn't block/disarm in the sim.
 THR_FAILSAFE 0
 
+# --- Aux RC passthrough on the spare outputs (5-16) ---------------------------
+# Godot only sees ArduPilot's servo OUTPUTS over the SITL link, not RC inputs. To
+# make an aux switch (e.g. RC6 for the catapult) visible to GWChannelSwitch /
+# examples/Catapult.gd, each RC input n is routed to output n via SERVOn_FUNCTION =
+# 50 + n (RCINn passthrough). Then control_norm(n) in Godot tracks RC n directly.
+# Channels 9-11 are skipped — the gimbal block below uses them.
+SERVO5_FUNCTION  55    # RCIN5  -> channel 5
+SERVO6_FUNCTION  56    # RCIN6  -> channel 6  (catapult trigger in examples/Catapult.gd)
+SERVO7_FUNCTION  57    # RCIN7  -> channel 7
+SERVO8_FUNCTION  58    # RCIN8  -> channel 8
+SERVO12_FUNCTION 62    # RCIN12 -> channel 12
+SERVO13_FUNCTION 63    # RCIN13 -> channel 13
+SERVO14_FUNCTION 64    # RCIN14 -> channel 14
+SERVO15_FUNCTION 65    # RCIN15 -> channel 15
+SERVO16_FUNCTION 66    # RCIN16 -> channel 16
+
 # --- Camera gimbal: servo mount that the Godot GWCamera follows ---
 # On the GWCamera/GWAircraft, enable the gimbal and set pitch/yaw/roll channels
 # to 9/10/11 with ranges matching the MNT1_*_MIN/MAX below.

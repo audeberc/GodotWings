@@ -6,6 +6,7 @@
 [ext_resource type="Script" uid="uid://bh5lavgo82lwy" path="res://addons/godotwings/world/FloatingOrigin.gd" id="7_fo"]
 [ext_resource type="Script" uid="uid://25ml8ie24oyc" path="res://addons/godotwings/camera/ViewCamera.gd" id="9_yc8hl"]
 [ext_resource type="PackedScene" uid="uid://bi3mbe13w1apl" path="res://examples/World.tscn" id="11_world"]
+[ext_resource type="Script" uid="uid://bsk60lj53g04y" path="res://addons/godotwings/world/Catapult.gd" id="12_cata"]
 
 [sub_resource type="BoxMesh" id="Mesh_base"]
 size = Vector3(40000, 1, 40000)
@@ -72,9 +73,9 @@ script = ExtResource("6_terrain")
 amplitude = 200.0
 flat_radius = 500.0
 
-[node name="Terrain_col" type="StaticBody3D" parent="WorldRoot/Terrain" unique_id=705813384]
+[node name="Terrain_col" type="StaticBody3D" parent="WorldRoot/Terrain" unique_id=677451097]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="WorldRoot/Terrain/Terrain_col" unique_id=256666013]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WorldRoot/Terrain/Terrain_col" unique_id=806934646]
 shape = SubResource("ConcavePolygonShape3D_m3a76")
 
 [node name="Runway" type="MeshInstance3D" parent="WorldRoot" unique_id=1569043313]
@@ -119,8 +120,10 @@ distance = 10.0
 script = ExtResource("7_fo")
 
 [node name="GWAircraft" type="Node3D" parent="." unique_id=13636810]
+transform = Transform3D(1, 0, 0, 0, 0.96062416, -0.27785122, 0, 0.27785122, 0.96062416, 0, -1.3000739, 0)
 script = ExtResource("6_g726i")
 model_yaw_offset_deg = 180.0
+hold_until_launch = true
 enable_camera = true
 camera_protocol = 1
 camera_gimbal = true
@@ -128,3 +131,10 @@ terrain_following = true
 wind_path = NodePath("../GWWind")
 obstacle_mask = 1
 metadata/_custom_type_script = "uid://btq25u4xs5gcj"
+
+[node name="GWCatapult" type="Node3D" parent="." unique_id=272178146]
+transform = Transform3D(-1, -8.742278e-08, -3.821371e-15, 0, -4.371139e-08, 1, -8.742278e-08, 1, 4.371139e-08, 0.017455101, -1.9213233, -0.1635865)
+script = ExtResource("12_cata")
+aircraft_path = NodePath("../GWAircraft")
+launch_speed = 90.0
+metadata/_custom_type_script = "uid://bsk60lj53g04y"

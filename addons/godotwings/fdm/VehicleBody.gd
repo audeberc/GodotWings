@@ -61,6 +61,11 @@ const GROUND_PROBE_DOWN := 8000.0 ## ...and reaches this far below (m)
 ## On recovery, respawn at the home/spawn point rather than where the wreck settled
 ## (so a crash on a steep hillside doesn't leave it embedded). False = in place.
 @export var respawn_at_home: bool = true
+## Freeze the vehicle at its editor placement (position + attitude, e.g. sitting on a
+## catapult rail pitched up) until launch() is called — see examples/Catapult.gd. The
+## FDM is suspended and the static pose is reported to ArduPilot; controls are ignored
+## until release. Overrides spawn_north/east/heading while held.
+@export var hold_until_launch: bool = false
 
 @export_group("Ground / terrain")
 ## Raycast downward against world colliders so the gear/roll-out/crash logic
@@ -110,6 +115,9 @@ var _airspeed := 0.0
 var _on_ground := true
 var _crashed := false
 var _crash_settle := 0.0  # seconds the wreck has been at rest (for auto-recovery)
+var _held := false                 # frozen on a launcher until launch() (hold_until_launch)
+var _hold_pos_ned := Vector3.ZERO  # editor-placement pose captured for the held spawn
+var _hold_dcm := Basis()
 var _accel_body := Vector3(0, 0, -G)  # IMU specific force, FRD, m/s^2
 var _ground_down := 0.0               # terrain surface under vehicle, NED down (m)
 var _ground_normal := Vector3(0, 0, -1)  # terrain surface normal, NED (up = -z)
@@ -168,20 +176,30 @@ func _ready() -> void:
 	if aircraft_layer != 0 and is_inside_tree():
 		_create_hull_body()
 	_wind = _resolve_wind()
+	# Capture the editor placement so a held vehicle spawns on the catapult, not at 0,0.
+	if hold_until_launch and is_inside_tree():
+		_hold_pos_ned = GWCoordConvert.world_to_ned(global_position)
+		_hold_dcm = GWCoordConvert.render_basis_to_dcm(global_transform.basis)
 	_reset_state()
 
 
 func _reset_state() -> void:
-	_pos_ned = Vector3(spawn_north, spawn_east, -spawn_altitude)
+	if hold_until_launch:
+		_pos_ned = _hold_pos_ned
+		_dcm = _hold_dcm
+		_held = true
+		_on_ground = false  # it's on the launcher, not the runway
+	else:
+		_pos_ned = Vector3(spawn_north, spawn_east, -spawn_altitude)
+		_dcm = GWCoordConvert.attitude_to_dcm(0.0, 0.0, spawn_heading)
+		# Rest on the terrain under the spawn point (spawn_altitude is clearance).
+		_update_ground_sample()
+		_pos_ned.z = _ground_down - spawn_altitude
+		_on_ground = true
 	_vel_ned = Vector3.ZERO
-	_dcm = GWCoordConvert.attitude_to_dcm(0.0, 0.0, spawn_heading)
-	# Rest on the terrain under the spawn point (spawn_altitude is clearance).
-	_update_ground_sample()
-	_pos_ned.z = _ground_down - spawn_altitude
 	_omega = Vector3.ZERO
 	_sim_time = 0.0
 	_airspeed = 0.0
-	_on_ground = true
 	_crashed = false
 	_crash_settle = 0.0
 	_exit_ragdoll()  # discard any wreck proxy from a previous crash
@@ -226,6 +244,23 @@ func control_pwm(channel: int) -> int:
 	return _controls_pwm[i] if i >= 0 and i < _controls_pwm.size() else 0
 
 
+## Launch the vehicle forward at `speed` (m/s) along its current nose direction — a
+## catapult / bungee / hand-throw. Marks it airborne and emits took_off. No-op while
+## crashed. The velocity is applied instantly, so ArduPilot's IMU sees a brief
+## acceleration spike (a real catapult is only a few g — keep `speed` sane).
+func launch(speed: float) -> void:
+	if _crashed:
+		return
+	var was_locked := _on_ground or _held
+	_held = false
+	_on_ground = false
+	var fwd := (_dcm * Vector3(1.0, 0.0, 0.0)).normalized()  # body nose, NED
+	_vel_ned = fwd * speed
+	_airspeed = speed
+	if was_locked:
+		took_off.emit()
+
+
 ## Advance the simulation by `dt` using fixed internal sub-steps, so behaviour is
 ## identical regardless of the host physics tick rate — total advanced time stays
 ## `dt`, only the integration granularity is fixed.
@@ -240,8 +275,9 @@ func _step(dt: float) -> void:
 	var a_kin := (_vel_ned - v_before) / dt
 	_accel_body = _dcm.transposed() * (a_kin - Vector3(0, 0, G)) # gravity down=+z
 	_sync_node()
-	# Hull vs. obstacles / other vehicles: any contact is a crash.
-	if not _crashed and not _ragdolling and _check_obstacle():
+	# Hull vs. obstacles / other vehicles: any contact is a crash (not while held —
+	# the hull overlaps the catapult it's sitting on).
+	if not _crashed and not _ragdolling and not _held and _check_obstacle():
 		_enter_crash()
 
 
@@ -249,7 +285,9 @@ func _step(dt: float) -> void:
 func _substep(h: float) -> void:
 	if _ragdolling:
 		return  # FDM suspended; the physics-driven wreck takes over
-	_sim_time += h
+	_sim_time += h  # time advances even when held, so SITL lockstep keeps ticking
+	if _held:
+		return  # frozen on the launcher; pose unchanged until launch()
 	if _crashed:
 		_step_crashed(h)
 	else:

@@ -1,0 +1,14 @@
+#!/bin/sh
+# YAML guard. Editors keep re-indenting docker-compose.yml with TABS (Godot's text
+# editor especially), which YAML forbids. Reject any STAGED *.yml/*.yaml whose
+# indentation contains tabs — checking the staged blob, not the working tree, so an
+# editor re-tabbing the file after `git add` can't false-trigger (or sneak through).
+status=0
+for f in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.ya?ml$'); do
+	if git show ":$f" | awk '/^ *\t/ { bad = 1 } END { exit bad ? 0 : 1 }'; then
+		echo "pre-commit: $f (staged) uses TAB indentation — YAML requires spaces."
+		echo "  Fix: git checkout -- \"$f\" && git add \"$f\"   then commit again."
+		status=1
+	fi
+done
+exit $status
