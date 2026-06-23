@@ -1,0 +1,32 @@
+[gd_scene format=3 uid="uid://bwpx1ycq0try0"]
+
+[ext_resource type="Script" uid="uid://btq25u4xs5gcj" path="res://addons/godotwings/Aircraft.gd" id="1_air"]
+[ext_resource type="Script" uid="uid://25ml8ie24oyc" path="res://addons/godotwings/camera/ViewCamera.gd" id="2_cam"]
+
+[sub_resource type="BoxMesh" id="Mesh_ground"]
+size = Vector3(4000, 1, 4000)
+
+[sub_resource type="StandardMaterial3D" id="Mat_ground"]
+albedo_color = Color(0.22, 0.45, 0.16, 1)
+
+[node name="ManualExample" type="Node3D" unique_id=1289667208]
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=313790951]
+transform = Transform3D(0.7, -0.5, 0.5, 0, 0.7, 0.7, -0.7, -0.5, 0.5, 0, 200, 0)
+shadow_enabled = true
+
+[node name="Ground" type="MeshInstance3D" parent="." unique_id=2058087546]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+mesh = SubResource("Mesh_ground")
+surface_material_override/0 = SubResource("Mat_ground")
+
+[node name="Aircraft" type="Node3D" parent="." unique_id=2004297227]
+script = ExtResource("1_air")
+model_yaw_offset_deg = 180.0
+control_source = 1
+
+[node name="ViewCamera" type="Camera3D" parent="." unique_id=1361656705]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 20)
+script = ExtResource("2_cam")
+enable_input = false
+allow_ground_move = false

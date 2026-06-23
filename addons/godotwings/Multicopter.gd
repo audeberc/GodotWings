@@ -61,7 +61,10 @@ func _ready() -> void:
 		set_physics_process(false)
 		_instance_model()   # visual preview only; bridge/camera are runtime-only
 		return
-	_ensure_bridge(sitl_instance)
+	if control_source == ControlSource.MANUAL:
+		_ensure_manual_input()  # direct keyboard/joypad/RC; raw motor channels, no SITL
+	else:
+		_ensure_bridge(sitl_instance)
 	_instance_model()
 	if enable_camera:
 		_ensure_camera(_camera_opts())

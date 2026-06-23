@@ -99,7 +99,10 @@ func _ready() -> void:
 	var resolved := _resolve_spec()
 	if resolved != null:
 		config = resolved.build()
-	_ensure_bridge(sitl_instance)
+	if control_source == ControlSource.MANUAL:
+		_ensure_manual_input()  # direct keyboard/joypad/RC; no SITL bridge
+	else:
+		_ensure_bridge(sitl_instance)
 	_instance_model()
 	if enable_camera:
 		_ensure_camera(_camera_opts())
