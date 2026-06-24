@@ -33,6 +33,12 @@ enum CrashMode {
 	RAGDOLL,  ## hand the wreck to the physics engine for a real tumble
 }
 
+## Where the FDM's control commands come from.
+enum ControlSource {
+	SITL,    ## ArduPilot JSON lockstep over UDP (GWSITLBridge) — the default
+	MANUAL,  ## direct keyboard / joypad / RC input (GWManualInput), no autopilot
+}
+
 const G := 9.81
 # Ground-contact classification: above any of these at touchdown = a crash.
 const CRASH_SINK_RATE := 3.0   ## m/s descent
@@ -45,7 +51,13 @@ const CRASH_SLOPE := 0.5236    ## terrain steeper than this at contact (~30 deg)
 const GROUND_PROBE_UP := 1000.0   ## terrain ray starts this far above the vehicle (m)
 const GROUND_PROBE_DOWN := 8000.0 ## ...and reaches this far below (m)
 
+## Command source: SITL (ArduPilot lockstep) or MANUAL (direct keyboard/joypad/RC).
+## In MANUAL the SITL bridge is bypassed and a GWManualInput drives the FDM in real
+## time; if none is found at `manual_input_path` one is auto-created.
+@export var control_source: ControlSource = ControlSource.SITL
 @export var bridge_path: NodePath = ^"../GWSITLBridge"
+## GWManualInput node used when `control_source` is MANUAL.
+@export var manual_input_path: NodePath = ^"GWManualInput"
 ## Spawn altitude above the ground (m); also the resting height on the gear.
 @export var spawn_altitude: float = 0.5
 ## Spawn position North/East (m) and initial heading (rad NED: 0=N, +toward E).
@@ -102,8 +114,9 @@ const GROUND_PROBE_DOWN := 8000.0 ## ...and reaches this far below (m)
 @export_range(0.0, 1.0) var ragdoll_bounce: float = 0.2
 
 var _bridge: GWSITLBridge
+var _source                           # active command source (bridge or manual input)
 var _atmos: GWAtmosphereModel
-var _cmd := {}                        # latest command dict from the bridge
+var _cmd := {}                        # latest command dict from the source
 
 # --- 6-DOF state (NED / FRD) -------------------------------------------------
 var _pos_ned := Vector3.ZERO   # position, NED, m
@@ -169,10 +182,7 @@ func _ready() -> void:
 	_atmos = GWAtmosphereModel.new()
 	_hull_shape = BoxShape3D.new()
 	_hull_shape.size = (hull_size * 2.0) if hull_size != Vector3.ZERO else _default_hull_size()
-	# Guard the lookup so a not-in-tree instance (e.g. unit tests) doesn't error.
-	_bridge = get_node_or_null(bridge_path) as GWSITLBridge if is_inside_tree() else null
-	if _bridge == null:
-		push_warning("GWVehicleBody: no GWSITLBridge at %s — running idle (no SITL)." % [bridge_path])
+	_resolve_source()
 	if aircraft_layer != 0 and is_inside_tree():
 		_create_hull_body()
 	_wind = _resolve_wind()
@@ -181,6 +191,27 @@ func _ready() -> void:
 		_hold_pos_ned = GWCoordConvert.world_to_ned(global_position)
 		_hold_dcm = GWCoordConvert.render_basis_to_dcm(global_transform.basis)
 	_reset_state()
+
+
+## Resolve the active command source for `control_source`. SITL uses the
+## GWSITLBridge at `bridge_path`; MANUAL uses the GWManualInput at
+## `manual_input_path`, auto-creating one if absent so a bare body still flies.
+func _resolve_source() -> void:
+	if not is_inside_tree():
+		return  # not-in-tree instance (e.g. unit tests): source set up by the test
+	if control_source == ControlSource.MANUAL:
+		var manual := get_node_or_null(manual_input_path)
+		if manual == null:
+			manual = GWManualInput.new()
+			manual.name = "GWManualInput"
+			add_child(manual)
+			manual_input_path = ^"GWManualInput"
+		_source = manual
+		return
+	_bridge = get_node_or_null(bridge_path) as GWSITLBridge
+	if _bridge == null:
+		push_warning("GWVehicleBody: no GWSITLBridge at %s — running idle (no SITL)." % [bridge_path])
+	_source = _bridge
 
 
 func _reset_state() -> void:
@@ -209,9 +240,9 @@ func _reset_state() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if _bridge == null or not _bridge.has_command():
-		return # lockstep: advance only when ArduPilot has sent PWM
-	_cmd = _bridge.take_command()
+	if _source == null or not _source.has_command():
+		return # SITL: advance only when ArduPilot has sent PWM. MANUAL: every tick.
+	_cmd = _source.take_command()
 	_update_controls(_cmd["pwm"])
 	if _cmd["reset"]:
 		_reset_state()
@@ -219,7 +250,7 @@ func _physics_process(delta: float) -> void:
 		_step_ragdoll(delta)  # FDM is suspended; read the wreck back from physics
 	else:
 		_step(delta)
-	_bridge.post_state(_build_state())
+	_source.post_state(_build_state())
 
 
 ## Store the latest PWM channels (raw + normalised) and notify listeners.
@@ -556,6 +587,19 @@ func _ensure_bridge(instance: int) -> void:
 	bridge.listen_port = port
 	add_child(bridge)
 	bridge_path = ^"GWSITLBridge"
+
+
+## Find or create a GWManualInput child (for control_source == MANUAL) and point
+## manual_input_path at it. Sibling to _ensure_bridge for the drop-in facades.
+func _ensure_manual_input() -> void:
+	for child in get_children():
+		if child is GWManualInput:
+			manual_input_path = get_path_to(child)
+			return
+	var manual := GWManualInput.new()
+	manual.name = "GWManualInput"
+	add_child(manual)
+	manual_input_path = ^"GWManualInput"
 
 
 ## Add a GWCamera child configured from `opts` (no-op if one already exists). Keys:

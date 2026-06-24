@@ -44,6 +44,44 @@ You can then use your ground control software of choice (tested with QGroundcont
 
 
 
+## Manual / direct control (no SITL)
+
+You don't need ArduPilot to fly. Every vehicle has a `control_source` property:
+
+- **SITL** (default) — driven by ArduPilot over the UDP lockstep bridge.
+- **Manual** — driven directly by keyboard / joypad / USB RC controller.
+
+Set `control_source = Manual` on a `GWAircraft` / `GWMulticopter` (or drop a
+`GWManualInput` node under any vehicle body) and run Godot on its own — no Docker,
+no autopilot. A `GWManualInput` is added automatically when none is present.
+
+Default controls (RC "mode 2"; all rebindable in *Project Settings → Input Map*,
+the `gw_*` actions):
+
+| Input | Keyboard | Joypad |
+|---|---|---|
+| Roll (aileron) | ← / → | right stick X |
+| Pitch (elevator) | ↑ / ↓ | right stick Y |
+| Yaw (rudder) | A / D | left stick X |
+| Throttle | W / S | left stick Y |
+| Reset / un-crash | R | — |
+
+Throttle is **sticky**: it ramps up/down while you hold the key/stick and holds
+where you leave it (set `throttle_ramp`). If a control responds backwards for your
+airframe, flip the matching `invert_*` flag.
+
+Manual mode is **raw and unstabilised** — sticks map straight to channels 1–4 in
+the AETR layout. A fixed-wing flies this directly (it's a real RC "manual" mode:
+surfaces deflect, no auto-level). A **multirotor receives channels 1–4 as raw
+per-motor servos**, exactly as it would from SITL, so it is *not* hand-flyable as-is
+— layer your own mixer / flight-mode sim on top of `GWManualInput` if you want
+stabilised quad control. Aux channels (5–16) rest at neutral, so `GWChannelSwitch`
+still works against a manual source.
+
+See `examples/Manual.tscn` for a runnable fixed-wing setup.
+
+
+
 ## Camera & gimbal
 
 `GWCamera` (`sensors/Camera.gd`) renders an off-screen viewport sharing the main
