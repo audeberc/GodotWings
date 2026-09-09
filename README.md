@@ -118,6 +118,355 @@ SERVO10_FUNCTION 6     # mount yaw   -> ch 10
 SERVO11_FUNCTION 8     # mount roll  -> ch 11
 ```
 
+## Ground PTZ (fixed pan/tilt/zoom camera)
+
+`GWGroundPTZ` (`sensors/GroundPTZ.gd`) is a ground-emplaced pan/tilt/zoom camera
+— a tripod/mast vantage, not attached to a vehicle. It reuses `GWCamera`
+verbatim for rendering + RTSP publish (auto-adding one as a child, configured
+from its own exports, on its own path/port) and only points that camera's
+mount and adjusts its `fov` for zoom. It does **not** speak any camera control
+protocol itself — that translation lives in an external process; Godot only
+renders, streams RTSP, and speaks a dumb JSON control protocol over TCP that
+drives it.
+
+Drop a `GWGroundPTZ` node in the scene at the tripod/mast position (its own
+`position`, same as any other node) and set:
+
+| Export | Meaning |
+|---|---|
+| `reference_heading_deg` | Compass heading `pan = 0` points at. |
+| `base_fov` | `Camera3D.fov` at `zoom = 1` (widest); applied as `fov = base_fov / zoom`. |
+| `tilt_min_deg` / `tilt_max_deg` | Tilt clamp, degrees (positive = up, negative = down). |
+| `zoom_max` | Zoom is clamped to `[1, zoom_max]`. |
+| `max_pan_rate_deg` / `max_tilt_rate_deg` / `max_zoom_rate` | Rate at speed = 100 for `continuous` moves. |
+| `default_continuous_timeout` | Used when a `continuous` request omits `"timeout"`. |
+| `protocol`, `resolution`, `fps`, `video_host`, `video_port`, `rtsp_url`, `ffmpeg_path`, `launch_ffmpeg`, `bitrate_kbps`, `raw_tcp_port` | Passed straight through to the child `GWCamera` — same meaning as the vehicle camera's own exports; give `rtsp_url` its own path (e.g. `.../groundptz`) so it doesn't collide with a vehicle's stream. |
+| `control_host` / `control_port` | Bind address for the JSON control socket (default `0.0.0.0:8770`). |
+| `metadata_enabled`, `metadata_host`, `metadata_port` | Off by default. When on, emits one JSON telemetry packet/frame over UDP — pose + geodetic position, for `gw_klv_muxer.py` (below) or your own tooling. |
+| `latitude`, `longitude`, `altitude_m` | The mount's true WGS84 position — purely informational (doesn't affect rendering), but required for the telemetry to be geolocatable. |
+
+To pre-configure the camera yourself (custom encoder settings, etc.), add a
+`GWCamera` child under the `GWGroundPTZ` by hand — it'll be reused as-is
+instead of auto-created.
+
+### JSON control protocol
+
+One TCP connection, newline-delimited JSON: one request object per line, one
+reply object back per request (`continuous`/`stop` aside, this is otherwise
+stateless). Angles are degrees; `pan` wraps to `[-180, 180]` (it's a full-
+rotation yaw), `tilt`/`zoom` hard-clamp to their configured ranges. Every
+successful reply echoes the resulting pose so the caller can read state
+straight off any command. Errors reply `{"ok":false,"error":"..."}`.
+
+```
+{"cmd":"status"}
+    -> {"ok":true,"pan":P,"tilt":T,"zoom":Z}
+
+{"cmd":"absolute","pan":P,"tilt":T,"zoom":Z}       // any field optional; missing = unchanged
+    -> {"ok":true,"pan":P,"tilt":T,"zoom":Z}
+
+{"cmd":"relative","rpan":dP,"rtilt":dT,"rzoom":dZ} // deltas, any optional
+    -> {"ok":true,"pan":P,"tilt":T,"zoom":Z}
+
+{"cmd":"continuous","pan_speed":sx,"tilt_speed":sy,"zoom_speed":sz,"timeout":secs}
+    // speeds in [-100,100] (% of max rate); moves each physics tick until
+    // "stop" or timeout (default from `default_continuous_timeout`, 5s).
+    -> {"ok":true}
+
+{"cmd":"stop"}
+    // halts any continuous motion.
+    -> {"ok":true,"pan":P,"tilt":T,"zoom":Z}
+```
+
+See `examples/GroundPTZ.tscn` for a minimal scene.
+
+### STANAG 4609 / MISB ST 0601 KLV metadata
+
+`tools/gw_klv_muxer.py` is a companion process (not part of the addon) that
+turns either camera's raw video + telemetry into a proper STANAG 4609 stream —
+H.264 video and MISB ST 0601 KLV metadata as two elementary streams in one
+MPEG-TS, the standard FMV wire format. It's what you'd point `launch_ffmpeg =
+false` at instead of ffmpeg when you need KLV: ffmpeg's CLI can mux H.264 fine
+but can't cleanly interleave the variable-length, packet-boundary-sensitive
+KLV track (see `misb_st0601.py`'s docstring for why), so this uses GStreamer
+instead — `mpegtsmux` has native KLV support (`meta/x-klv` caps → the
+`stream_type 0x06` + `KLVA` registration descriptor MISB readers expect).
+
+```bash
+pip install pygobject   # or: brew install gstreamer pygobject3 (macOS)
+python3 tools/gw_klv_muxer.py --video-port 5568 --metadata-port 5611 \
+    --width 1280 --height 720 --fps 30 --out-port 5700
+```
+
+By default it publishes plain UDP MPEG-TS. Pass `--rtsp-url` instead to push
+to an RTSP server (e.g. the same MediaMTX `GWCamera`'s own `rtsp_url` already
+targets, on its own path) — the H.264+KLV mux is reused completely unchanged;
+only the transport at the very end swaps from `udpsink` to `rtspclientsink`
+(RTP/MP2T, payload type 33 — the KLV stays inside the MPEG-TS exactly as
+`mpegtsmux` built it, since RTSP has no KLV media type of its own to describe
+it separately):
+
+```bash
+python3 tools/gw_klv_muxer.py --video-port 5568 --metadata-port 5611 \
+    --width 1280 --height 720 --fps 30 --rtsp-url rtsp://127.0.0.1:8554/groundptz_klv
+```
+
+Two things worth knowing if a downstream tool complains about the stream:
+
+- **`h264parse config-interval=-1`** repeats SPS/PPS before every IDR frame
+  (not on a fixed timer) — needed for anything joining mid-stream (an RTSP
+  server ingesting the push, a client connecting after start) to decode from
+  its first keyframe. The "non-existing PPS" warning right when something
+  *first* joins mid-GOP is still normal and expected either way — every
+  decoder has to wait for the next IDR when joining mid-stream, no setting
+  changes that; it should clear up as soon as that next IDR arrives.
+- **`mpegtsmux latency` (`--mux-latency-ms`, default 200)** — the KLV appsrc
+  has near-zero latency; the video branch has to actually run through
+  `x264enc` first. Without this, `mpegtsmux` can commit to its very first
+  PAT/PMT before the video branch has produced anything, so that first table
+  declares only the KLV track — and readers that read the PMT once at start
+  (MediaMTX's UDP source among them) latch onto that and reject all
+  subsequent video as an "undeclared track", even though a corrected PMT
+  arrives ~100ms later. Verified directly: `0` (disabled) reliably reproduces
+  exactly that failure; `200` reliably fixes it. Raise it if your video branch
+  is slower to start (bigger resolution/bitrate, slower machine).
+
+It auto-detects which camera's telemetry arrived — `GWCamera`'s (vehicle-
+relative pose + `pos_ned`/quaternion, converted to lat/lon via the same flat-
+tangent-plane math as `GWGeoReference.ned_to_geodetic()`; pass `--home-lat` /
+`--home-lon` / `--home-alt` to match) or `GWGroundPTZ`'s (already absolute
+lat/lon + pan/tilt/zoom) — and maps it onto the ST 0601 tags each schema can
+actually populate: platform heading/pitch/roll, sensor lat/lon/altitude
+(correctly accounting for the camera's mount offset *and* any gimbal rotation
+— not just the vehicle's CG position and attitude), sensor relative az/el,
+horizontal/vertical FOV, and a frame-center + 4-corner ground footprint. Point
+any FMV/KLV client (or `gst-launch-1.0 udpsrc port=5700 ! tsdemux ! ...`) at
+the resulting `udp://host:5700`.
+
+The frame-center/corner tags (23-25, 82-89) come from a **flat-ground-plane**
+ray intersection — the boresight and 4 FOV-corner rays intersected with a
+horizontal plane at `--ground-alt` (default 0). This is a simplifying
+approximation, **not** a real terrain raycast: Godot has the actual terrain
+mesh, but this external process doesn't, so it can't ray-cast against it.
+Over genuinely flat ground it's exact; over hills it's off by however much the
+terrain deviates from that plane. If the camera is looking at or above the
+horizon, no footprint can exist — those tags are simply omitted for that
+frame rather than emitting nonsense.
+
+With every field this module can populate, the packet is small enough for
+BER's single-byte ("short-form") length encoding — except with all 9
+frame-center/corner tags added, which pushes it past 127 bytes into
+multi-byte ("long-form") length. That's valid KLV, but some simpler KLV
+parsers only handle short-form and will error loading tags on a long-form
+packet. If your downstream tool complains, pass `--no-footprint` to drop
+those 9 tags and check whether that's the cause.
+
+**Testing it end to end**, with no real STANAG4609 client on hand: set
+`launch_ffmpeg = false` on the camera (Godot then only hosts the raw-frame
+socket instead of spawning its own ffmpeg), run `gw_klv_muxer.py` against it
+as above, then in parallel:
+
+```bash
+ffplay udp://127.0.0.1:5700            # see the actual video
+ffprobe udp://127.0.0.1:5700           # confirm it lists a video AND a data stream
+python3 tools/gw_klv_dump.py --port 5700   # decode + print every KLV packet live
+```
+
+`gw_klv_dump.py` scans the stream for genuine, checksum-valid KLV units and
+prints each one's decoded fields as they arrive — the quickest way to watch
+lat/lon/pan/tilt update in real time as you drive the camera over its JSON
+control socket, and hard confirmation the metadata survived the mux intact
+(a corrupted or misframed packet simply fails its checksum and gets skipped).
+
+## Real-world terrain import
+
+`tools/gw_terrain_import.py` bakes a real place — real satellite imagery +
+real elevation — into a terrain tile `GWImportedTerrain` can load, from
+entirely open, no-registration data: Sentinel-2 L2A true-color imagery and
+Copernicus DEM GLO-30 elevation, both pulled from public AWS Open Data buckets
+via Element84's STAC API. It's an offline bake step — Godot never touches the
+network for this; the tool downloads/reprojects once, up front.
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install rasterio numpy pillow requests
+python3 tools/gw_terrain_import.py --lat 60.221088825593135 --lon 25.018208331290666 \
+    --size-km 4 --out terrain_helsinki
+```
+
+It searches for the least-cloudy Sentinel-2 scene over the AOI, mosaics
+whichever Copernicus DEM tiles cover it (handles an AOI straddling a tile
+boundary), and reprojects both onto a local grid in an azimuthal-equidistant
+(AEQD) projection centered exactly on `--lat`/`--lon` — the geospatially
+rigorous version of the same flat-tangent-plane approximation
+`GWCoordConvert`/`GWGeoReference` already use elsewhere in this project.
+Writes `<out>_heightmap.png`, `<out>_texture.png`, and `<out>.json` (elevation
+range, source scene IDs/dates — for provenance — and everything
+`GWImportedTerrain` needs), then prints a `HOME_LOCATION` line for you to
+paste into `docker-compose.yml`/`.env`.
+
+Drop a `GWImportedTerrain` node (`addons/godotwings/world/ImportedTerrain.gd`)
+and point `heightmap_path` / `texture_path` / `metadata_path` at those three
+files — it builds a heightmapped, textured, collision-enabled mesh at
+`_ready()` (same procedural-build pattern as `examples/Terrain.gd`, just
+driven by real data instead of noise). Leave the node's own transform at
+identity: the tile is centered on its own origin, and since a `GWVehicleBody`
+spawns at NED (0,0) by default, **the AOI's center IS the takeoff point** with
+no extra glue — just make sure `HOME_LOCATION` (or `GWGeoReference.home_lat`/
+`home_lon`) actually matches `--lat`/`--lon`, so ArduPilot's own GPS origin
+agrees with the terrain under it.
+
+One thing worth knowing: Godot's `Image` has no true 16-bit-per-channel
+format — loading a 16-bit grayscale PNG silently truncates to 256 levels
+(verified directly, not assumed). So the heightmap packs each 16-bit sample
+across the R (high byte) and G (low byte) channels of an ordinary RGB8 PNG
+instead, which Godot *does* load at exact, full 8-bit-per-channel precision —
+`GWImportedTerrain._decode_height16()` unpacks it back losslessly.
+
+`examples/ImportedTerrain.tscn` is a ready-to-run example — a real baked tile
+over Helsinki (`examples/terrain/`, matching this project's own default
+`HOME_LOCATION`) with a manually-flyable `GWAircraft` (`terrain_following =
+true`) that spawns resting right on the real surface.
+
+## Real Cesium 3D Tiles (buildings/terrain meshes)
+
+Real Cesium 3D Tiles content — e.g.
+[Google Photorealistic 3D Tiles](https://cesium.com/platform/cesium-ion/content/google-3d-tiles/)
+via Cesium ion — for real building/terrain meshes instead of a flat baked
+texture. This is a **separate system from `gw_terrain_import.py` above** —
+different data (real 3D meshes vs. a heightmapped imagery bake), different
+license/caching rules, don't conflate the two.
+
+**Requires a [Cesium ion](https://cesium.com/) account + access token**
+(free tier has a usage quota) — nothing here can provision one for you. Set
+it as an environment variable, never a file: `export CESIUM_ION_TOKEN=...`.
+It must never be committed or hardcoded.
+
+### Live streaming (`GWTiles3DStreamer`) — the real path
+
+`GWTiles3DStreamer` (`addons/godotwings/world/Tiles3DStreamer.gd`) fetches
+real tile content for the render cameras and nearby vehicle **every session**
+and holds tiles in memory, without a persistent cache. This avoids the
+offline-storage issue of an earlier bounded-prefetch design (download once,
+cache to disk, fly with zero network access — see below), but does not establish
+permission for every simulation or recording use. Check the applicable provider
+terms, including these storage restrictions:
+
+- Cesium ion ToS §2.2.2 (`cesium.com/legal/terms-of-service/`): "You may not
+  copy, store, or redistribute any portion of Cesium Data Output in, or for
+  use in, **an offline environment**." The only caching exception is generic
+  client/proxy caching "that caches other internet traffic too" — ordinary
+  HTTP caching during *live* use, not a deliberate prefetch-then-run-offline
+  design.
+- Google Maps Content terms (`cesium.com/legal/terms-for-google/`): "You
+  will not... download Google Maps tiles **or Street View tiles for storage
+  or rehosting**."
+
+Drop a `GWTiles3DStreamer` node anywhere in the scene (it auto-finds the
+first `GWVehicleBody`, same pattern as `GWFloatingOrigin`) and set
+`home_lat`/`home_lon`/`home_alt` to match the vehicle's actual home position
+(e.g. `HOME_LOCATION`), plus `asset_id` (`2275207` = Google Photorealistic 3D
+Tiles). Camera-dependent detail replaces the former metre-error near/far rings:
+
+- `maximum_screen_space_error` is a pixel-error target (default 4px). A
+  narrower field of view or larger render viewport requests finer geometry.
+- `streaming_radius_km` retains coarse local safety coverage (default 1km),
+  including areas outside the camera views. `far_radius_km` controls the
+  camera-visible selection range (default 40km), not a second detail threshold.
+- `set_cameras()` registers perspective `Camera3D` views, including offscreen
+  sensor viewports. Selection uses the largest projected error across them.
+  With no explicit cameras, the active root-viewport camera is used.
+- Every `poll_interval_s` (default 0.25s), camera poses, fields of view, viewport
+  sizes and the vehicle target are sampled for the next selection;
+- separately, once the vehicle drifts past `reanchor_distance_m`, the
+  *render frame's* anchor shifts and every already-loaded tile repositions
+  instantly from its stored real-world transform (no re-fetch) — this only
+  bounds the flat-tangent approximation error, it doesn't drive streaming.
+
+The background thread performs traversal and sequential HTTP requests. Each
+selection admits coarse coverage before refining it, and complete replacement
+groups keep their parents visible until every required child is available.
+At the root, a failed coarse payload does not block an otherwise complete child
+cut. Missing intermediate payloads keep descendants staged only while an
+ancestor fallback is visible; without one, complete descendants provide the
+coverage instead.
+New coarse coverage does not discard detail that is already visible. Changed
+camera targets interrupt the old payload queue after a small progress batch.
+Local-safety payloads are requested before distant-only payloads, preserving
+selection order within each class. Metadata and payload request failures share
+throttled, credential-safe engine diagnostics.
+The local-safety footprint is horizontal, so flight altitude does not remove
+the ground beneath the vehicle from selection.
+
+**How fast ground appears.** Every new view is planned twice. A COARSE pass
+first refines only down to `coarse_screen_space_error` (default 64 px): few,
+large tiles, so it plans in seconds and its payloads are fetched without ever
+yielding to a newer view — measured in PicoField at 1080p, real ground under the
+vehicle at ~13 s from launch, where the previous single fine pass showed
+nothing for minutes. The fine pass (`maximum_screen_space_error`) traverses
+while those coarse payloads download and refines the cut when it completes.
+Payloads are fetched by `download_workers` (default 6) concurrent connections,
+nearest camera first within each class (local safety coverage always before
+distant-only tiles), and the nested tileset documents each level points at are
+prefetched in parallel. A camera has to move `view_change_position_m` (1 m) or
+turn `view_change_angle_deg` (1°) before it counts as a new view; the
+chase camera's per-frame drift no longer restarts the download queue. Time to
+full detail is dominated by metadata round-trips, so a shorter `far_radius_km`
+and a larger error target (10 km / 8 px is a good sim default) pay off far more
+than bandwidth.
+
+`max_tiles_loaded` bounds resident tile instances (default 1536), and
+`tiles_per_frame_budget` bounds main-thread tile placement per frame (default
+4). When the detail budget fills, remaining branches retain coarse coverage;
+the highest projected errors receive refinement first. The error setting is
+therefore a target, not a guarantee that every visible tile meets it.
+
+If every slot belongs to the retained detailed cut, new coarse payloads wait
+until a complete selection permits safe eviction. A failed detailed traversal
+therefore preserves that cut rather than exceeding the residency cap.
+
+Lower pixel-error targets can require substantially more data and take minutes
+to finish over a slow connection. Network/traversal work is off the main thread,
+but an individual GLB import still runs on it and can cause a frame-time spike.
+There is no persistent tile cache.
+
+**Attribution is required, not optional**: `GWTiles3DStreamer.attributions`
+is populated once the asset resolves — Cesium ion's and the content
+provider's terms require displaying these wherever the content is shown to
+anyone besides you. Render them in your own UI.
+
+### Offline bounded prefetch (`tools/gw_3dtiles_prefetch.py` + `GWTiles3DLoader`) — local debugging fixture ONLY
+
+Kept in the repo as a convenience for debugging the traversal/transform math
+against a small area **without a real ion token** (point `--tileset-url` at
+a public, unauthenticated sample, e.g.
+[Cesium's own sample tilesets](https://github.com/CesiumGS/3d-tiles-samples))
+— **not a compliant way to use real Cesium ion / Google data**, per the ToS
+excerpts above; that's exactly why `GWTiles3DStreamer` exists. Do not point
+this at a real ion token for anything beyond a momentary local check.
+
+```bash
+pip install requests numpy
+python3 tools/gw_3dtiles_prefetch.py \
+    --tileset-url https://raw.githubusercontent.com/CesiumGS/3d-tiles-samples/main/1.0/TilesetWithDiscreteLOD/tileset.json \
+    --lat 40.04253061142592 --lon -75.61209430782448 --radius-km 1 --detail-m 1
+```
+
+Output always lands under `.cache/3dtiles/` (gitignored — never commit tile
+content or a manifest); `--purge-stale-hours 24` deletes cache directories
+older than that; `GWTiles3DLoader.max_cache_age_hours` (default 24h) refuses
+to load a stale manifest at runtime; attribution is captured into the
+manifest's `content_attributions` and exposed as `GWTiles3DLoader.attributions`
+the same way. All of that reduces how far this can drift from "momentary
+local debugging" — it does not make the prefetch-and-store architecture
+itself compliant for real use.
+
+Drop a `GWTiles3DLoader` node and point `manifest_path` at the
+`manifest.json` the tool wrote — same "generate from an offline tool's
+output, no network at runtime" pattern as `GWImportedTerrain`, and likewise
+centered so the AOI's center sits at the node's own origin, composing with
+the rest of the scene the same way.
+
 ## Wind, collision & crash
 
 `GWWind` — drop one in the world and every vehicle auto-finds it. Mean wind
@@ -164,4 +513,7 @@ vehicle). With `NUM_VEHICLES > 1` the instances run headless.
 MIT. The stylized sky in `examples/World.tscn` uses GDQuest's
 [godot-4-stylized-sky](https://github.com/gdquest-demos/godot-4-stylized-sky)
 shader (MIT procedural resources only — no CC-BY-NC-SA art); see
-[examples/sky/CREDITS.md](examples/sky/CREDITS.md).
+[examples/sky/CREDITS.md](examples/sky/CREDITS.md). Terrain baked by
+`tools/gw_terrain_import.py` contains modified Copernicus Sentinel data and
+Copernicus DEM data (ESA/EU, free and open under the Copernicus data policy);
+attribute accordingly if you redistribute a baked tile.
