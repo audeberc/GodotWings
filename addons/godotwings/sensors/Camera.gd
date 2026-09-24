@@ -300,15 +300,22 @@ func _grab_and_send() -> void:
 func _send_metadata() -> void:
 	var sim_time := 0.0
 	var pos_ned := Vector3.ZERO
+	var vel_ned := Vector3.ZERO
 	var quat := Quaternion.IDENTITY
 	if _body != null:
 		sim_time = _body._sim_time
 		pos_ned = _body._pos_ned
+		vel_ned = _body._vel_ned
 		quat = _body._dcm.get_rotation_quaternion()  # body(FRD) -> NED
 	var payload := {
 		"frame_id": _frame_id,
 		"sim_time": sim_time,
 		"pos_ned": [pos_ned.x, pos_ned.y, pos_ned.z],
+		# Linear velocity in the same NED frame as pos_ned, m/s. The body
+		# integrates this itself, so it is exact rather than differentiated
+		# from position — which is what makes ST 0601 tags 56/79/80 worth
+		# emitting at all.
+		"vel_ned": [vel_ned.x, vel_ned.y, vel_ned.z],
 		"quat_body_to_ned": [quat.w, quat.x, quat.y, quat.z],
 		"fov_deg": fov,
 		"width": resolution.x,

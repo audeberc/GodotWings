@@ -19,10 +19,9 @@ attitude, sensor lat/lon/alt, sensor FOV, sensor position relative to the
 platform (pan/tilt or gimbal angles), and frame center + corner points (Tags
 23-25, 82-89), plus the platform call sign (Tag 59) — the footprint from a
 flat-ground-plane ray intersection computed in `gw_klv_muxer.py`, not a real
-terrain raycast (Godot has the actual terrain
-but this external process doesn't); see that module's docstring. Add more from
-the ST 0601 tag table as needed — `pack_local_set` doesn't care which subset
-you pass.
+terrain raycast (Godot has the actual terrain but this external process
+doesn't); see that module's docstring. Add more from the ST 0601 tag table as
+needed — `pack_local_set` doesn't care which subset you pass.
 """
 
 from __future__ import annotations
@@ -48,6 +47,16 @@ _FIELDS: dict[str, tuple[int, int, float, float, bool]] = {
     "sensor_rel_az":   (18,  4,     0.0,   360.0,  False),
     "sensor_rel_el":   (19,  4,  -180.0,   180.0,  True),
     "sensor_rel_roll": (20,  4,     0.0,   360.0,  False),
+    # Tag 56 is a plain 1 m/s-per-count byte, so the generic linear map over
+    # 0..255 reproduces it exactly. Tags 79/80 are the sensor's own N/E
+    # velocity; ST 0601 maps them over (-2^15-1)..(2^15-1) and reserves
+    # 0x8000 as "out of range", where the simplified map below spans the full
+    # -2^15..2^15-1 instead — a ~0.003% scale difference, and a code only an
+    # aircraft at exactly -327 m/s could reach. Same deviation the other
+    # signed tags here already carry; see the module docstring.
+    "platform_ground_speed": (56, 1, 0.0, 255.0, False),
+    "sensor_north_velocity": (79, 2, -327.0, 327.0, True),
+    "sensor_east_velocity":  (80, 2, -327.0, 327.0, True),
     "frame_center_lat": (23, 4,   -90.0,    90.0,  True),
     "frame_center_lon": (24, 4,  -180.0,   180.0,  True),
     "frame_center_elevation": (25, 2, -900.0, 19000.0, False),
