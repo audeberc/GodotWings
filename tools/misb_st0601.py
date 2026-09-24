@@ -17,8 +17,9 @@ reader, not a claim of bit-exact certification compliance.
 Only the tags GodotWings can actually populate are implemented: platform
 attitude, sensor lat/lon/alt, sensor FOV, sensor position relative to the
 platform (pan/tilt or gimbal angles), and frame center + corner points (Tags
-23-25, 82-89) — the latter from a flat-ground-plane ray intersection computed
-in `gw_klv_muxer.py`, not a real terrain raycast (Godot has the actual terrain
+23-25, 82-89), plus the platform call sign (Tag 59) — the footprint from a
+flat-ground-plane ray intersection computed in `gw_klv_muxer.py`, not a real
+terrain raycast (Godot has the actual terrain
 but this external process doesn't); see that module's docstring. Add more from
 the ST 0601 tag table as needed — `pack_local_set` doesn't care which subset
 you pass.
@@ -61,6 +62,20 @@ _FIELDS: dict[str, tuple[int, int, float, float, bool]] = {
     "uas_ls_version":  (65,  1,     0,     255,    False),
 }
 
+# Variable-length ASCII text tags, kept out of _FIELDS because they have no
+# IMAPB range and no fixed width -- the value IS the string's bytes. Text is
+# how ST 0601 carries identity (call sign, tail number, mission id); none of
+# it is an enumeration, so a reader can display it but cannot key symbology
+# off it without its own lookup table.
+_TEXT_FIELDS: dict[str, int] = {
+    "platform_callsign": 59,
+}
+
+# Longest value written for one text tag. Every element this module emits uses
+# a short-form BER length, and `iter_tags` assumes that when reading back, so a
+# single element's value must stay under 0x80 bytes.
+_MAX_TEXT_LEN = 127
+
 
 def ber_length(n: int) -> bytes:
     """BER definite-length encoding (short form if it fits in 7 bits)."""
@@ -93,6 +108,13 @@ def _encode_field(name: str, value: float) -> bytes:
     return _imapb(float(value), vmin, vmax, nbytes, signed)
 
 
+def _encode_text(value: str) -> bytes:
+    """ASCII bytes for a text tag, truncated to `_MAX_TEXT_LEN`. Non-ASCII is
+    dropped rather than raising: a call sign typed with an accent should still
+    produce a legal packet, just without that character."""
+    return value.encode("ascii", "ignore")[:_MAX_TEXT_LEN]
+
+
 def _checksum16(data: bytes) -> int:
     """ST 0601 Tag 1: 16-bit sum of the packet as big-endian 16-bit words,
     zero-padded if odd length."""
@@ -115,10 +137,18 @@ def pack_local_set(fields: dict) -> bytes:
     for name, value in fields.items():
         if name == "checksum":
             raise ValueError("checksum is computed automatically, don't pass it")
-        if name not in _FIELDS:
+        if name in _TEXT_FIELDS:
+            tag = _TEXT_FIELDS[name]
+            val = _encode_text(str(value))
+            # An empty string is an ABSENT tag, not a zero-length one: a reader
+            # that sees Tag 59 present expects a call sign to be in it.
+            if not val:
+                continue
+        elif name in _FIELDS:
+            tag = _FIELDS[name][0]
+            val = _encode_field(name, value)
+        else:
             raise ValueError(f"unknown MISB ST 0601 field {name!r}")
-        tag = _FIELDS[name][0]
-        val = _encode_field(name, value)
         body += bytes([tag]) + ber_length(len(val)) + val
 
     length_field = ber_length(len(body) + 4)  # +4: checksum's own tag(1)+len(1)+value(2)
@@ -163,6 +193,7 @@ def iter_tags(packet: bytes):
 
 
 _TAG_TO_NAME = {tag: name for name, (tag, *_rest) in _FIELDS.items()}
+_TAG_TO_NAME.update({tag: name for name, tag in _TEXT_FIELDS.items()})
 
 
 def _imapb_decode(code_bytes: bytes, vmin: float, vmax: float, signed: bool) -> float:
@@ -187,6 +218,9 @@ def unpack_local_set(packet: bytes) -> dict:
     for tag, raw in iter_tags(packet):
         name = _TAG_TO_NAME.get(tag)
         if name is None or name == "checksum":
+            continue
+        if name in _TEXT_FIELDS:
+            result[name] = raw.decode("ascii", "replace")
             continue
         _, nbytes, vmin, vmax, signed = _FIELDS[name]
         if name == "timestamp":
