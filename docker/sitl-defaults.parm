@@ -87,3 +87,28 @@ ATC_RAT_PIT_D 0.0008
 ATC_RAT_YAW_P 0.09
 ATC_RAT_YAW_I 0.05
 INS_GYRO_FILTER 80
+# --- MAVLink link speed -------------------------------------------------------
+# ArduPilot enforces the configured baud even when the "serial" port is a UDP
+# socket, so the simulated 57600 is a real throughput ceiling on a link that
+# has no physical one. Measured on the stock defaults (SERIAL0 115, SERIAL1/2
+# 57): a client requesting more than ~90 msg/s queues the downlink, and at
+# 150 msg/s every message, parameter reply and mode confirmation arrived a
+# constant 3.0 s late — the firmware had already acted, only what the client
+# read was stale.
+#
+# Worse, the queued link stalls the autopilot's main loop. Against the wall
+# clock: 1.000x unloaded, 0.966x while loaded (17 stalls over 150 ms in 40 s),
+# then a 1.107x catch-up with a 780 ms step once the load stopped. Over an hour
+# with a ground station and a companion app both connected the vehicle clock
+# fell 24 s behind, and a plane in LOITER developed a 1.5 s limit cycle (roll
+# 0..40 deg, pitch +-14 deg, climb +-5 m/s) and tumbled in. The same loiter on
+# an unloaded link holds a 36 deg bank to +-0.1 deg for 100 s and settles a
+# 20 deg roll step in 0.5 s with 5% overshoot, so the airframe and the attitude
+# tuning are not at fault: the stalls are.
+#
+# 921600 on all three removes the ceiling, so no client can queue the link or
+# stall the loop. PicoField wires --serial0 for the primary MAVLink output and
+# --serial1/2 for the extra ones, so all three need it.
+SERIAL0_BAUD 921
+SERIAL1_BAUD 921
+SERIAL2_BAUD 921
