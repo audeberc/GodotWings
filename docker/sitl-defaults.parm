@@ -12,6 +12,20 @@ ARMING_RUDDER 2
 # Disable RC failsafe so "no transmitter" doesn't block/disarm in the sim.
 THR_FAILSAFE 0
 
+# --- Attitude limits ----------------------------------------------------------
+# ArduPilot's own plane.parm allows 25 degrees nose-up, which is tame for a
+# simulator people fly aerobatically. Raised to 50.
+#
+# BOTH lines are needed. PTCH_LIM_MAX_DEG bounds the attitude controller, but in
+# GUIDED and AUTO the pitch demand comes from TECS, and TECS_PITCH_MAX overrides
+# that limit in those modes -- raising only the first is the classic case of
+# "I changed the limit and nothing happened".
+#
+# Fixed-wing parameters: ArduCopter and ArduRover ignore them, which is harmless
+# since this file is applied to every vehicle.
+PTCH_LIM_MAX_DEG 50
+TECS_PITCH_MAX   50
+
 # --- Aux RC passthrough on the spare outputs (5-16) ---------------------------
 # Godot only sees ArduPilot's servo OUTPUTS over the SITL link, not RC inputs. To
 # make an aux switch (e.g. RC6 for the catapult) visible to GWChannelSwitch /
