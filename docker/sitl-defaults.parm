@@ -13,18 +13,21 @@ ARMING_RUDDER 2
 THR_FAILSAFE 0
 
 # --- Attitude limits ----------------------------------------------------------
-# ArduPilot's own plane.parm allows 25 degrees nose-up, which is tame for a
-# simulator people fly aerobatically. Raised to 50.
+# ArduPilot's own plane.parm allows 25 degrees nose-up and only 20 nose-down,
+# which is tame for a simulator people fly aerobatically. These are not figures
+# this project chose -- they arrive from Tools/autotest/models/plane.parm when
+# the SITL binaries are built -- so they are stated explicitly here.
 #
-# BOTH lines are needed. PTCH_LIM_MAX_DEG bounds the attitude controller, but in
-# GUIDED and AUTO the pitch demand comes from TECS, and TECS_PITCH_MAX overrides
-# that limit in those modes -- raising only the first is the classic case of
-# "I changed the limit and nothing happened".
+# Nose-down is the one raised: 50 degrees, well inside the -90..0 the parameter
+# accepts. Nose-up stays at 25.
 #
-# Fixed-wing parameters: ArduCopter and ArduRover ignore them, which is harmless
-# since this file is applied to every vehicle.
-PTCH_LIM_MAX_DEG 50
-TECS_PITCH_MAX   50
+# TECS_PITCH_MAX/MIN are deliberately NOT set. In GUIDED and AUTO the pitch
+# demand comes from TECS rather than straight from these limits, but both TECS
+# parameters default to 0, which means "use the PTCH_LIM value" -- so one pair
+# of numbers governs every mode. Set them only to make auto flight differ from
+# stabilised flight, and watch their own range when you do.
+PTCH_LIM_MAX_DEG  25
+PTCH_LIM_MIN_DEG -50
 
 # --- Aux RC passthrough on the spare outputs (5-16) ---------------------------
 # Godot only sees ArduPilot's servo OUTPUTS over the SITL link, not RC inputs. To
