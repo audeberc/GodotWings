@@ -513,7 +513,14 @@ func _make_room_for_tile() -> bool:
 
 func _place_new_tile(tile: Dictionary) -> void:
 	var xform := GWTiles3DTraversal.local_transform_to_godot(tile["ecef_transform"], _anchor_lat, _anchor_lon, _anchor_alt)
-	var wrapper := GWTiles3DContent.place_tile(self, tile["bytes"], xform, _content_axis_correction, String(tile["id"]).validate_node_name())
+	var ecef: Transform3D = tile["ecef_transform"]
+	var lat := _anchor_lat
+	var lon := _anchor_lon
+	var alt := _anchor_alt
+	var to_godot := func(x: float, y: float, z: float) -> Vector3:
+		return GWTiles3DTraversal.local_point_to_godot(ecef, x, y, z, lat, lon, alt)
+	var wrapper := GWTiles3DContent.place_tile(self, tile["bytes"], xform, _content_axis_correction,
+			String(tile["id"]).validate_node_name(), to_godot)
 	if wrapper == null:
 		push_warning("GWTiles3DStreamer: failed to parse/place tile %s" % tile["id"])
 		return
