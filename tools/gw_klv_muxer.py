@@ -381,8 +381,18 @@ def telemetry_to_klv_fields(msg: dict, args) -> dict | None:
             "sensor_rel_az": rel_az % 360.0,
             "sensor_rel_el": rel_el,
             "sensor_rel_roll": rel_roll % 360.0,
-            "uas_ls_version": 13,
         }
+        # Velocity is the sensor's, and the sensor rides the platform: a mount
+        # offset adds only the rigid body's rotational term, far below the 1
+        # cm/s these tags resolve. Ground speed is the horizontal magnitude, so
+        # a climb does not inflate it. Absent on older Godot builds, like
+        # mount_pos — then the tags are simply not written.
+        vel_ned = msg.get("vel_ned")
+        if vel_ned is not None:
+            fields["sensor_north_velocity"] = vel_ned[0]
+            fields["sensor_east_velocity"] = vel_ned[1]
+            fields["platform_ground_speed"] = math.hypot(vel_ned[0], vel_ned[1])
+        fields["uas_ls_version"] = 13
         if mount_basis is not None and not args.no_footprint:
             fwd, right, up = camera_axes_from_mount_basis(mount_basis, quat)
             ground_d = args.home_alt - args.ground_alt  # flat-ground elevation, in the same NED-D frame
@@ -411,6 +421,11 @@ def telemetry_to_klv_fields(msg: dict, args) -> dict | None:
             "sensor_rel_az": msg["pan_deg"] % 360.0,
             "sensor_rel_el": msg["tilt_deg"],
             "sensor_rel_roll": 0.0,
+            # A mast does not move. The zeros say "stationary"; absence would
+            # only say "unknown".
+            "sensor_north_velocity": 0.0,
+            "sensor_east_velocity": 0.0,
+            "platform_ground_speed": 0.0,
             "uas_ls_version": 13,
         }
         if not args.no_footprint:

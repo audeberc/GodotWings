@@ -12,6 +12,23 @@ ARMING_RUDDER 2
 # Disable RC failsafe so "no transmitter" doesn't block/disarm in the sim.
 THR_FAILSAFE 0
 
+# --- Attitude limits ----------------------------------------------------------
+# ArduPilot's own plane.parm allows 25 degrees nose-up and only 20 nose-down,
+# which is tame for a simulator people fly aerobatically. These are not figures
+# this project chose -- they arrive from Tools/autotest/models/plane.parm when
+# the SITL binaries are built -- so they are stated explicitly here.
+#
+# Nose-down is the one raised: 50 degrees, well inside the -90..0 the parameter
+# accepts. Nose-up stays at 25.
+#
+# TECS_PITCH_MAX/MIN are deliberately NOT set. In GUIDED and AUTO the pitch
+# demand comes from TECS rather than straight from these limits, but both TECS
+# parameters default to 0, which means "use the PTCH_LIM value" -- so one pair
+# of numbers governs every mode. Set them only to make auto flight differ from
+# stabilised flight, and watch their own range when you do.
+PTCH_LIM_MAX_DEG  25
+PTCH_LIM_MIN_DEG -50
+
 # --- Aux RC passthrough on the spare outputs (5-16) ---------------------------
 # Godot only sees ArduPilot's servo OUTPUTS over the SITL link, not RC inputs. To
 # make an aux switch (e.g. RC6 for the catapult) visible to GWChannelSwitch /
@@ -87,3 +104,28 @@ ATC_RAT_PIT_D 0.0008
 ATC_RAT_YAW_P 0.09
 ATC_RAT_YAW_I 0.05
 INS_GYRO_FILTER 80
+# --- MAVLink link speed -------------------------------------------------------
+# ArduPilot enforces the configured baud even when the "serial" port is a UDP
+# socket, so the simulated 57600 is a real throughput ceiling on a link that
+# has no physical one. Measured on the stock defaults (SERIAL0 115, SERIAL1/2
+# 57): a client requesting more than ~90 msg/s queues the downlink, and at
+# 150 msg/s every message, parameter reply and mode confirmation arrived a
+# constant 3.0 s late — the firmware had already acted, only what the client
+# read was stale.
+#
+# Worse, the queued link stalls the autopilot's main loop. Against the wall
+# clock: 1.000x unloaded, 0.966x while loaded (17 stalls over 150 ms in 40 s),
+# then a 1.107x catch-up with a 780 ms step once the load stopped. Over an hour
+# with a ground station and a companion app both connected the vehicle clock
+# fell 24 s behind, and a plane in LOITER developed a 1.5 s limit cycle (roll
+# 0..40 deg, pitch +-14 deg, climb +-5 m/s) and tumbled in. The same loiter on
+# an unloaded link holds a 36 deg bank to +-0.1 deg for 100 s and settles a
+# 20 deg roll step in 0.5 s with 5% overshoot, so the airframe and the attitude
+# tuning are not at fault: the stalls are.
+#
+# 921600 on all three removes the ceiling, so no client can queue the link or
+# stall the loop. PicoField wires --serial0 for the primary MAVLink output and
+# --serial1/2 for the extra ones, so all three need it.
+SERIAL0_BAUD 921
+SERIAL1_BAUD 921
+SERIAL2_BAUD 921

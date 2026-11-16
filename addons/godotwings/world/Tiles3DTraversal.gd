@@ -340,6 +340,20 @@ static func evaluate_tile(tile: Dictionary, parent_transform: Transform3D, detai
 ## Transform3D relative to (anchor_lat, anchor_lon, anchor_alt). Position
 ## conversion stays in double precision (GWGeodeticConvert); this is the
 ## same math gw_3dtiles_prefetch.py's local_transform_to_godot does.
+## A point in a tile's local frame (three float64s) to its Godot position,
+## through the tile's ECEF transform, in float64 until the result. The
+## tileset transform is float32, which is exact for the identity chains
+## Google serves; the content's own large offset is what loses precision.
+static func local_point_to_godot(world_transform: Transform3D, x: float, y: float, z: float,
+		anchor_lat: float, anchor_lon: float, anchor_alt: float) -> Vector3:
+	var b := world_transform.basis
+	var o := world_transform.origin
+	var ex: float = b.x.x * x + b.y.x * y + b.z.x * z + o.x
+	var ey: float = b.x.y * x + b.y.y * y + b.z.y * z + o.y
+	var ez: float = b.x.z * x + b.y.z * y + b.z.z * z + o.z
+	return GWGeodeticConvert.ecef_xyz_to_godot_position(ex, ey, ez, anchor_lat, anchor_lon, anchor_alt)
+
+
 static func local_transform_to_godot(world_transform: Transform3D,
 		anchor_lat: float, anchor_lon: float, anchor_alt: float) -> Transform3D:
 	var o := world_transform.origin
