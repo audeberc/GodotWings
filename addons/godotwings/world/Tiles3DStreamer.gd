@@ -419,10 +419,8 @@ func _reanchor(lat: float, lon: float, alt: float) -> void:
 	position = GWCoordConvert.ned_to_world(anchor_ned)
 	for id in _loaded_tiles:
 		var entry: Dictionary = _loaded_tiles[id]
-		var xform := GWTiles3DTraversal.local_transform_to_godot(entry["ecef_transform"], lat, lon, alt)
-		if _content_axis_correction == "google_yup_ecef":
-			xform.basis = xform.basis * GWTiles3DContent.GOOGLE_YUP_ECEF_CORRECTION
-		entry["wrapper"].transform = xform
+		entry["wrapper"].transform = rebased_wrapper_transform(entry["wrapper"], entry["ecef_transform"],
+				_content_axis_correction, lat, lon, alt)
 		entry["bounds"] = GWTiles3DTraversal.bounding_sphere(
 				entry.get("bounding_volume", {}), entry["ecef_transform"], lat, lon, alt)
 	_poll(lat, lon, alt)
@@ -483,6 +481,22 @@ func _incoming_has(id: String) -> bool:
 		if String(tile["id"]) == id:
 			return true
 	return false
+
+
+## A placed tile's wrapper transform for the anchor (lat, lon, alt): the
+## tileset transform's, with the origin the wrapper's rebase point (see
+## GWTiles3DContent.rebase_root_nodes) when the tile has one. Without it, a
+## re-anchor would put a rebased tile's wrapper back at the Earth's centre
+## while its nodes keep only their small offsets: the ground vanishes.
+static func rebased_wrapper_transform(wrapper: Node3D, ecef_transform: Transform3D,
+		content_axis_correction: String, lat: float, lon: float, alt: float) -> Transform3D:
+	var xform := GWTiles3DTraversal.local_transform_to_godot(ecef_transform, lat, lon, alt)
+	if content_axis_correction == "google_yup_ecef":
+		xform.basis = xform.basis * GWTiles3DContent.GOOGLE_YUP_ECEF_CORRECTION
+	if wrapper.has_meta(GWTiles3DContent.REBASE_POINT_META):
+		var p: Array = wrapper.get_meta(GWTiles3DContent.REBASE_POINT_META)
+		xform.origin = GWTiles3DTraversal.local_point_to_godot(ecef_transform, p[0], p[1], p[2], lat, lon, alt)
+	return xform
 
 
 func _tile_needed(id: String) -> bool:

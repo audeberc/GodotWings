@@ -13,6 +13,9 @@ extends SceneTree
 const LAT := 46.52
 const LON := 7.48
 const ALT := 540.0
+# A re-anchor about 3 km away (the streamer's default distance is 2 km).
+const LAT2 := 46.54
+const LON2 := 7.51
 
 var _ok := true
 
@@ -36,6 +39,7 @@ func _run() -> void:
 	rng.seed = 7
 	var worst_before := 0.0
 	var worst_after := 0.0
+	var worst_reanchor := 0.0
 	for i in 40:
 		var e := GWGeodeticConvert.geodetic_to_ecef_xyz(LAT + rng.randf_range(-0.03, 0.03),
 				LON + rng.randf_range(-0.04, 0.04), ALT + rng.randf_range(-20.0, 80.0))
@@ -61,12 +65,20 @@ func _run() -> void:
 		var after := GWTiles3DContent.place_tile(parent, glb, xform, "google_yup_ecef", "after_%d" % i, to_godot)
 		worst_before = maxf(worst_before, _mesh_position(before).distance_to(truth))
 		worst_after = maxf(worst_after, _mesh_position(after).distance_to(truth))
+		# The streamer re-anchors every few km: the rebased tile must land
+		# where float64 says for the new anchor too, not at the Earth's centre.
+		after.transform = GWTiles3DStreamer.rebased_wrapper_transform(after, Transform3D.IDENTITY,
+				"google_yup_ecef", LAT2, LON2, ALT)
+		var truth2 := GWGeodeticConvert.ecef_xyz_to_godot_position(t.x, -t.z, t.y, LAT2, LON2, ALT)
+		worst_reanchor = maxf(worst_reanchor, _mesh_position(after).distance_to(truth2))
 		before.free()
 		after.free()
 
 	print("  worst tile offset: float32 path %.3f m, float64 path %.4f m" % [worst_before, worst_after])
 	_check(worst_after < 0.01, "tiles placed through point_to_godot land within 1 cm of float64")
 	_check(worst_after < worst_before, "and closer than through float32 transforms alone")
+	print("  worst tile offset after a re-anchor: %.4f m" % worst_reanchor)
+	_check(worst_reanchor < 0.01, "re-anchored, they still land within 1 cm of float64")
 	_google_shape(parent)
 	print("ALL PASS" if _ok else "SOME CHECKS FAILED")
 	quit(0 if _ok else 1)
