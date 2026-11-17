@@ -65,7 +65,14 @@ static func place_tile(parent: Node3D, glb_bytes: PackedByteArray, wrapper_trans
 		axes = GOOGLE_YUP_ECEF_CORRECTION
 	xform.basis = xform.basis * axes
 	if point_to_godot.is_valid():
-		xform.origin = rebase_root_nodes(state, scene, xform.basis, axes, point_to_godot, xform.origin)
+		var rebase_point: Array = []
+		xform.origin = rebase_root_nodes(state, scene, xform.basis, axes, point_to_godot, xform.origin,
+				rebase_point)
+		if not rebase_point.is_empty():
+			# The wrapper's origin is this point (tile frame, float64), not the
+			# tileset transform's: a re-anchor must place it the same way
+			# (rebased_wrapper_transform), or the tile lands at the Earth's centre.
+			wrapper.set_meta(REBASE_POINT_META, rebase_point)
 	wrapper.transform = xform
 	parent.add_child(wrapper)
 	if Engine.is_editor_hint():
@@ -93,7 +100,7 @@ static func place_tile(parent: Node3D, glb_bytes: PackedByteArray, wrapper_trans
 ## generate_scene() swaps its importer nodes, so each root node is found by
 ## its translation, which the generated node still carries in float32.
 static func rebase_root_nodes(state: GLTFState, scene: Node, wrapper_basis: Basis, axes: Basis,
-		point_to_godot: Callable, fallback: Vector3) -> Vector3:
+		point_to_godot: Callable, fallback: Vector3, out_point: Array = []) -> Vector3:
 	var nodes: Array = state.json.get("nodes", [])
 	var placed: Array = []   # [Node3D, its Godot position]
 	for index in state.root_nodes:
@@ -110,9 +117,11 @@ static func rebase_root_nodes(state: GLTFState, scene: Node, wrapper_basis: Basi
 		var x: float = axes.x.x * t[0] + axes.y.x * t[1] + axes.z.x * t[2]
 		var y: float = axes.x.y * t[0] + axes.y.y * t[1] + axes.z.y * t[2]
 		var z: float = axes.x.z * t[0] + axes.y.z * t[1] + axes.z.z * t[2]
-		placed.append([node, point_to_godot.call(x, y, z)])
+		placed.append([node, point_to_godot.call(x, y, z), [x, y, z]])
 	if placed.is_empty():
 		return fallback
+	out_point.clear()
+	out_point.append_array(placed[0][2])
 	var origin: Vector3 = placed[0][1]
 	var to_local := wrapper_basis.inverse()
 	for p in placed:
@@ -123,6 +132,12 @@ static func rebase_root_nodes(state: GLTFState, scene: Node, wrapper_basis: Basi
 ## Root-node translations at least this far out are placed in float64; below
 ## it float32 is already finer than a millimetre.
 const FAR_ROOT_M := 10000.0
+
+
+## Wrapper meta: the tile-frame point (three float64s, standard ECEF axes)
+## whose Godot position is the wrapper's origin, set when the root nodes were
+## rebased. Absent: the wrapper's origin is the tileset transform's.
+const REBASE_POINT_META := &"gw_rebase_point"
 
 
 ## The generated node (the scene root or one of its children) whose position

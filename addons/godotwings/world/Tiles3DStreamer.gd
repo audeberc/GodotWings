@@ -159,6 +159,14 @@ var _accepted_plan_serial := -1
 ## REPLACE children or retained fallbacks, never simultaneously active opaque
 ## coverage with their replacement descendants.
 var _loaded_tiles: Dictionary = {}
+# GW_TILE_STATS=1: one line of residency stats every 5 s (diagnostics).
+var _stats_on := OS.get_environment("GW_TILE_STATS") != ""
+var _stats_t := 0.0
+var _stat_placed := 0
+var _stat_evicted := 0
+var _stat_room_fail := 0
+var _stat_stale_drop := 0
+var _stat_budget_hits := 0
 var _wrapper_entries: Dictionary = {}
 var _incoming_tiles: Array = []
 var _replacement_groups: Dictionary = {}
@@ -285,6 +293,24 @@ func _process(delta: float) -> void:
 		var dist := GWGeodeticConvert.geodetic_to_ned(lat, lon, alt, _anchor_lat, _anchor_lon, _anchor_alt).length()
 		if dist > reanchor_distance_m:
 			_reanchor(lat, lon, alt)
+	if _stats_on:
+		_stats_t += delta
+		if _stats_t >= 5.0:
+			_stats_t = 0.0
+			var shown := 0
+			for id in _loaded_tiles:
+				if _loaded_tiles[id]["wrapper"].visible:
+					shown += 1
+			print("GWTILES loaded=%d/%d shown=%d desired=%d protected=%d incoming=%d pending=%d placed=%d evicted=%d room_fail=%d stale_drop=%d budget_exhausted=%d groups=%d" % [
+					_loaded_tiles.size(), max_tiles_loaded, shown, _current_desired_ids.size(),
+					_protected_tile_ids.size(), _incoming_tiles.size(), _pending_results.size(),
+					_stat_placed, _stat_evicted, _stat_room_fail, _stat_stale_drop, _stat_budget_hits,
+					_replacement_groups.size()])
+			_stat_placed = 0
+			_stat_evicted = 0
+			_stat_room_fail = 0
+			_stat_stale_drop = 0
+			_stat_budget_hits = 0
 	_time_since_poll += delta
 	if _time_since_poll >= poll_interval_s:
 		_poll(lat, lon, alt)
@@ -419,10 +445,8 @@ func _reanchor(lat: float, lon: float, alt: float) -> void:
 	position = GWCoordConvert.ned_to_world(anchor_ned)
 	for id in _loaded_tiles:
 		var entry: Dictionary = _loaded_tiles[id]
-		var xform := GWTiles3DTraversal.local_transform_to_godot(entry["ecef_transform"], lat, lon, alt)
-		if _content_axis_correction == "google_yup_ecef":
-			xform.basis = xform.basis * GWTiles3DContent.GOOGLE_YUP_ECEF_CORRECTION
-		entry["wrapper"].transform = xform
+		entry["wrapper"].transform = rebased_wrapper_transform(entry["wrapper"], entry["ecef_transform"],
+				_content_axis_correction, lat, lon, alt)
 		entry["bounds"] = GWTiles3DTraversal.bounding_sphere(
 				entry.get("bounding_volume", {}), entry["ecef_transform"], lat, lon, alt)
 	_poll(lat, lon, alt)
@@ -468,11 +492,14 @@ func _drain_results() -> void:
 		if _loaded_tiles.has(id):
 			continue
 		if _accepted_view_revision >= 0 and not _tile_needed(id):
+			_stat_stale_drop += 1
 			continue
 		if not _make_room_for_tile():
+			_stat_room_fail += 1
 			_incoming_tiles.push_front(tile)
 			break
 		_place_new_tile(tile)
+		_stat_placed += 1
 		budget -= 1
 	_try_all_promotions()
 	_evict_safe_cached_tiles()
@@ -483,6 +510,22 @@ func _incoming_has(id: String) -> bool:
 		if String(tile["id"]) == id:
 			return true
 	return false
+
+
+## A placed tile's wrapper transform for the anchor (lat, lon, alt): the
+## tileset transform's, with the origin the wrapper's rebase point (see
+## GWTiles3DContent.rebase_root_nodes) when the tile has one. Without it, a
+## re-anchor would put a rebased tile's wrapper back at the Earth's centre
+## while its nodes keep only their small offsets: the ground vanishes.
+static func rebased_wrapper_transform(wrapper: Node3D, ecef_transform: Transform3D,
+		content_axis_correction: String, lat: float, lon: float, alt: float) -> Transform3D:
+	var xform := GWTiles3DTraversal.local_transform_to_godot(ecef_transform, lat, lon, alt)
+	if content_axis_correction == "google_yup_ecef":
+		xform.basis = xform.basis * GWTiles3DContent.GOOGLE_YUP_ECEF_CORRECTION
+	if wrapper.has_meta(GWTiles3DContent.REBASE_POINT_META):
+		var p: Array = wrapper.get_meta(GWTiles3DContent.REBASE_POINT_META)
+		xform.origin = GWTiles3DTraversal.local_point_to_godot(ecef_transform, p[0], p[1], p[2], lat, lon, alt)
+	return xform
 
 
 func _tile_needed(id: String) -> bool:
@@ -778,6 +821,7 @@ func _evict_tile(id: String) -> void:
 	if not _loaded_tiles.has(id):
 		return
 	var wrapper: Node3D = _loaded_tiles[id]["wrapper"]
+	_stat_evicted += 1
 	_wrapper_entries.erase(wrapper.get_instance_id())
 	wrapper.queue_free()
 	_loaded_tiles.erase(id)
@@ -1323,6 +1367,8 @@ func _walk_tile_live(tile: Dictionary, parent_transform: Transform3D, base_url: 
 			continue
 		var id := _stable_tile_id(content_url, transform, index)
 		if not desired.has(id) and desired.size() >= budget:
+			if not _selection_budget_exhausted:
+				_stat_budget_hits += 1
 			_selection_budget_exhausted = true
 			return {"ok": true, "complete": false, "coverage": own_ids}
 		desired[id] = {
