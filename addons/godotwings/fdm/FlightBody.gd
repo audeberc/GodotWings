@@ -17,6 +17,11 @@ const LEVEL_TAU := 0.3        ## time constant (s) to null roll/pitch on the gea
 const DEFAULT_CONFIG_PATH := "res://addons/godotwings/aircraft/Skywalker.tres"
 
 @export var config: GWAircraftConfig
+## Physics tick rate (Hz) this aircraft needs; the SITL exchange, and so the IMU
+## rate ArduPilot sees, is one per tick. ArduPlane 4.7 refuses to arm unless the
+## gyro rate is at least 1.8x its 50 Hz main loop, and Godot's 50-60 Hz default
+## gives it 60-75 Hz. 0 = leave the project setting.
+@export var control_rate_hz: int = 100
 
 # Fixed-wing subsystems.
 var _surfaces: GWControlSurfaces
@@ -33,6 +38,7 @@ func _setup_vehicle() -> bool:
 		return false
 	_wing = GWWingModel.new(config)
 	_moment = GWMomentModel.new(config)
+	_ensure_physics_rate(control_rate_hz, "ArduPlane's gyro-rate arming check")
 	return true
 
 
