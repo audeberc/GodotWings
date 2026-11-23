@@ -76,20 +76,9 @@ func _setup_vehicle() -> bool:
 	return true
 
 
-## Raise Godot's physics tick rate so the SITL exchange (one per tick) runs the
-## ArduCopter rate loop fast enough — a 60 Hz loop makes a copter oscillate.
 func _ensure_control_rate() -> void:
-	if control_rate_hz <= 0 or Engine.is_editor_hint():
-		return
-	if Engine.physics_ticks_per_second < control_rate_hz:
-		Engine.physics_ticks_per_second = control_rate_hz
-		# Don't let a slow render frame starve the physics/SITL exchange: with
-		# lockstep waiting (GWSITLBridge.wait_command) every allowed step
-		# completes an exchange, so this cap is the realtime floor --
-		# rate/10 keeps sim time honest down to ~10 rendered fps.
-		Engine.max_physics_steps_per_frame = maxi(
-				Engine.max_physics_steps_per_frame, ceili(control_rate_hz / 10.0))
-		print("GWMultirotorBody: raised physics tick rate to %d Hz (copter rate loop)." % control_rate_hz)
+	# A 60 Hz loop makes a copter oscillate.
+	_ensure_physics_rate(control_rate_hz, "copter rate loop")
 
 
 ## Quad X: motor 1 front-right (CCW), 2 back-left (CCW), 3 front-left (CW),

@@ -156,6 +156,22 @@ var render_origin := Vector3.ZERO
 func _setup_vehicle() -> bool:
 	return true
 
+## Raise Godot's physics tick rate to at least `hz`: the SITL exchange runs once
+## per physics tick, so this is also the rate ArduPilot's IMU is fed at. Never
+## lowers it (another vehicle or the project may need more).
+func _ensure_physics_rate(hz: int, why: String) -> void:
+	if hz <= 0 or Engine.is_editor_hint():
+		return
+	if Engine.physics_ticks_per_second < hz:
+		Engine.physics_ticks_per_second = hz
+		# Don't let a slow render frame starve the physics/SITL exchange: with
+		# lockstep waiting (GWSITLBridge.wait_command) every allowed step
+		# completes an exchange, so this cap is the realtime floor --
+		# rate/10 keeps sim time honest down to ~10 rendered fps.
+		Engine.max_physics_steps_per_frame = maxi(
+				Engine.max_physics_steps_per_frame, ceili(hz / 10.0))
+		print("GodotWings: raised physics tick rate to %d Hz (%s)." % [hz, why])
+
 ## Reset actuator/motor lag state (called on spawn and SITL reset).
 func _reset_dynamics() -> void:
 	pass
